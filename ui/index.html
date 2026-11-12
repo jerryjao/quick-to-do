@@ -74,7 +74,18 @@ const LISTS = [['today', '今日'], ['later', '先記著']];
 let S = { theme: 'obsidian', pinned: false, pos: null, day: '', items: [] };
 let open = false, editing = false, byHotkey = false, timer = 0, dragId = null;
 
-const save = () => invoke('save', { data: JSON.stringify(S) });
+let lastRaw = ''; // file content as we last read or wrote it
+const save = () => { lastRaw = JSON.stringify(S); return invoke('save', { data: lastRaw }); };
+
+// state.json is shared with other front ends (e.g. a Herdr panel): pick up
+// their writes. Skipped while a list field has focus so typing isn't reset.
+// ponytail: last writer wins inside the 1 s poll window; re-read before each
+// write (or lock the file) if two UIs ever get edited at the same moment.
+async function sync() {
+  const raw = await invoke('load');
+  if (!raw || raw === lastRaw || $('lists').contains(document.activeElement)) return;
+  try { S = { ...S, ...JSON.parse(raw) }; lastRaw = raw; render(); } catch { /* half-written: retry next tick */ }
+}
 const commit = () => { save(); render(); };
 
 function add(text, list) {
@@ -154,6 +165,7 @@ async function setOpen(v) {
 // Shrink to the notch; remember where it sits and which way it opens.
 async function collapse() {
   const [x, y, up] = await invoke('set_expanded', { expanded: false, height: 0 });
+  await sync(); // this save is not a user edit: never write a stale copy over another front end's changes
   S.pos = [x, y];
   document.body.classList.toggle('up', up);
 }
@@ -176,7 +188,8 @@ listen('hotkey', async () => { await setOpen(true); byHotkey = true; $('quick').
 listen('theme', (e) => { S.theme = e.payload; commit(); });
 
 (async () => {
-  try { S = { ...S, ...JSON.parse(await invoke('load') || '{}') }; } catch { /* corrupt file: start empty */ }
+  await sync();
+  setInterval(sync, 1000);
   if (S.pos) await invoke('move_to', { x: S.pos[0], y: S.pos[1] });
   await collapse();
   if (rollover(S, dayKey())) save();
