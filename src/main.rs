@@ -97,6 +97,25 @@ fn cursor_inside(win: WebviewWindow) -> bool {
     }
 }
 
+#[link(name = "user32")]
+extern "system" {
+    fn SetWindowPos(hwnd: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+}
+
+/// The taskbar is a topmost window too and jumps above the notch whenever it
+/// is used, hiding a notch parked on it. Put ourselves back on top every second.
+// ponytail: polling, so the notch can stay hidden for up to 1 s; hook
+// EVENT_SYSTEM_FOREGROUND if that lag ever matters.
+fn keep_on_top(win: &WebviewWindow) {
+    let Ok(hwnd) = win.hwnd() else { return };
+    let hwnd = hwnd.0 as isize;
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        // HWND_TOPMOST = -1; SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE = 0x13
+        unsafe { SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x13) };
+    });
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(
@@ -106,6 +125,7 @@ fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let win = app.get_webview_window("main").expect("main window");
+            keep_on_top(&win);
             if let Some(m) = win.primary_monitor()? {
                 let w = win.outer_size()?.width as i32;
                 let x = m.position().x + (m.size().width as i32 - w) / 2;
