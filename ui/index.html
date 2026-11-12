@@ -31,6 +31,7 @@ header { display:flex; align-items:center; gap:8px; cursor:move; }
 header button { height:32px; min-width:32px; padding:0 10px; border-radius:var(--r); background:var(--field); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; }
 header button[aria-pressed="true"] { background:var(--accent); color:var(--bg); }
 
+#opacity { width:110px; accent-color:var(--accent); cursor:pointer; }
 input[type="text"] { width:100%; height:36px; padding:0 12px; border:1px solid var(--line); border-radius:var(--r); background:var(--field); user-select:text; }
 input::placeholder { color:var(--muted); }
 input[type="checkbox"] { width:16px; height:16px; margin:0; accent-color:var(--accent); }
@@ -55,6 +56,7 @@ h2 { margin:0; font-size:12px; font-weight:400; }
 <div id="panel">
   <header data-tauri-drag-region>
     <b id="title" data-tauri-drag-region></b>
+    <input id="opacity" type="range" min="30" max="100" step="1" aria-label="透明度" title="透明度" hidden>
     <button id="edit"></button>
     <button id="pin" aria-label="釘住不收合" title="釘住不收合">
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 6 3 4H7l3-4-1-6z"/></svg>
@@ -135,6 +137,8 @@ function render() {
   $('edit').textContent = editing ? '完成' : '編輯';
   $('pin').setAttribute('aria-pressed', S.pinned);
   document.body.style.setProperty('--op', S.opacity / 100);
+  $('opacity').value = S.opacity;
+  $('opacity').hidden = !editing;
 
   // "Later" is parked work: it only shows up in edit mode.
   $('lists').replaceChildren(...LISTS.filter(([list]) => editing || list === 'today').map(([list, name]) => {
@@ -184,12 +188,13 @@ window.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(fals
 window.addEventListener('contextmenu', (e) => e.preventDefault());
 
 $('edit').onclick = () => { document.activeElement?.blur(); editing = !editing; render(); };
+$('opacity').oninput = (e) => { S.opacity = +e.target.value; document.body.style.setProperty('--op', S.opacity / 100); };
+$('opacity').onchange = () => save();
 $('pin').onclick =() => { S.pinned = !S.pinned; commit(); };
 $('quick').onkeydown = onEnter((e) => { add(e.target.value, e.shiftKey ? 'today' : 'later'); e.target.value = ''; });
 
 listen('hotkey', async () => { await setOpen(true); byHotkey = true; $('quick').focus(); });
 listen('theme', (e) => { S.theme = e.payload; commit(); });
-listen('opacity', (e) => { S.opacity = +e.payload; commit(); });
 
 (async () => {
   await sync();
