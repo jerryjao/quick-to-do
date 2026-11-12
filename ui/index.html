@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>Quick To Do</title>
+<style>
+/* Sizes must match NOTCH / PANEL_W in src/main.rs. */
+[data-theme="obsidian"] { --bg:#0B0B0C; --fg:#F4F4F5; --muted:#A1A1AA; --field:#1C1C1F; --line:#1C1C1F; --accent:#F5B544; --r-panel:28px; --r-notch:18px; --r:14px; color-scheme:dark; }
+[data-theme="mica"]     { --bg:#F6F8FA; --fg:#1B1F24; --muted:#57606A; --field:#FFFFFF; --line:#D5DAE0; --accent:#0A5FCC; --r-panel:8px;  --r-notch:8px;  --r:6px;  color-scheme:light; }
+[data-theme="indigo"]   { --bg:#14162B; --fg:#ECEDF8; --muted:#A4A8C8; --field:#1F2240; --line:#2E3256; --accent:#A5B4FC; --r-panel:16px; --r-notch:16px; --r:12px; color-scheme:dark; }
+
+html, body { margin:0; overflow:hidden; background:transparent; }
+body { font:14px "Segoe UI", "Microsoft JhengHei UI", sans-serif; color:var(--fg); user-select:none; }
+* { box-sizing:border-box; }
+button, input { font:inherit; color:inherit; }
+button { border:0; background:none; cursor:pointer; }
+:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+
+#notch { width:220px; height:36px; display:flex; align-items:center; justify-content:center; gap:10px; background:var(--bg); border:1px solid var(--line); border-top:0; border-radius:0 0 var(--r-notch) var(--r-notch); font-size:13px; font-weight:500; }
+body.up #notch { border-top:1px solid var(--line); border-bottom:0; border-radius:var(--r-notch) var(--r-notch) 0 0; }
+#notch i { width:8px; height:8px; border-radius:50%; background:var(--accent); }
+#n-later, h2, .hint { color:var(--muted); }
+
+#panel { display:none; width:420px; max-height:640px; flex-direction:column; gap:12px; padding:16px; background:var(--bg); border:1px solid var(--line); border-radius:var(--r-panel); }
+body.open #notch { display:none; }
+body.open #panel { display:flex; }
+
+header { display:flex; align-items:center; gap:8px; cursor:move; }
+#title { flex:1; font-size:17px; }
+#title span { color:var(--accent); }
+header button { height:32px; min-width:32px; padding:0 10px; border-radius:var(--r); background:var(--field); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; }
+header button[aria-pressed="true"] { background:var(--accent); color:var(--bg); }
+
+input[type="text"] { width:100%; height:36px; padding:0 12px; border:1px solid var(--line); border-radius:var(--r); background:var(--field); user-select:text; }
+input::placeholder { color:var(--muted); }
+input[type="checkbox"] { width:16px; height:16px; margin:0; accent-color:var(--accent); }
+
+#lists { overflow-y:auto; display:flex; flex-direction:column; gap:10px; }
+h2 { margin:0; font-size:12px; font-weight:400; }
+.row { display:flex; align-items:center; gap:8px; min-height:34px; }
+.row > span, .row label { flex:1; display:flex; align-items:center; gap:10px; min-height:34px; overflow-wrap:anywhere; }
+.row.done label { color:var(--muted); text-decoration:line-through; }
+.row.over { box-shadow:0 -2px 0 var(--accent); }
+.act { color:var(--accent); font-size:13px; font-weight:500; padding:6px 4px; white-space:nowrap; }
+.grip { cursor:grab; color:var(--muted); padding:6px 2px; }
+.hint { font-size:13px; padding:6px 0; }
+</style>
+</head>
+<body data-theme="obsidian">
+<div id="notch"><i></i><span id="n-today"></span><span id="n-later"></span></div>
+<div id="panel">
+  <header data-tauri-drag-region>
+    <b id="title" data-tauri-drag-region></b>
+    <button id="edit"></button>
+    <button id="pin" aria-label="釘住不收合" title="釘住不收合">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 6 3 4H7l3-4-1-6z"/></svg>
+    </button>
+  </header>
+  <input id="quick" type="text" aria-label="快速記錄" placeholder="Enter 先記著，Shift+Enter 排今天">
+  <div id="lists"></div>
+</div>
+<script src="logic.js"></script>
+<script>
+const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
+const $ = (id) => document.getElementById(id);
+const h = (tag, props = {}, ...kids) => {
+  const el = Object.assign(document.createElement(tag), props);
+  el.append(...kids);
+  return el;
+};
+const LISTS = [['today', '今日'], ['later', '先記著']];
+
+let S = { theme: 'obsidian', pinned: false, pos: null, day: '', items: [] };
+let open = false, editing = false, byHotkey = false, timer = 0, dragId = null;
+
+const save = () => invoke('save', { data: JSON.stringify(S) });
+const commit = () => { save(); render(); };
+
+function add(text, list) {
+  text = text.trim();
+  if (!text) return;
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  S.items.push({ id, text, list, done: false });
+  commit();
+}
+const remove = (item) => { S.items = S.items.filter((i) => i !== item); commit(); };
+const moveTo = (item, list) => { item.done = false; moveBefore(S.items, item.id, null, list); commit(); };
+
+// Enter adds; ignore the Enter that confirms an IME composition.
+const onEnter = (fn) => (e) => { if (e.key === 'Enter' && !e.isComposing) fn(e); };
+
+function row(item) {
+  const other = item.list === 'today' ? ['later', '退回'] : ['today', '排今天'];
+  const moveBtn = h('button', { className: 'act', textContent: other[1], onclick: () => moveTo(item, other[0]) });
+  if (!editing) {
+    if (item.list === 'later') return h('div', { className: 'row' }, h('span', { textContent: item.text }), moveBtn);
+    const box = h('input', { type: 'checkbox', checked: item.done, onchange: () => { item.done = box.checked; commit(); } });
+    return h('div', { className: 'row' + (item.done ? ' done' : '') }, h('label', {}, box, item.text));
+  }
+  const el = h('div', { className: 'row' },
+    h('span', { className: 'grip', textContent: '⠿', title: '拖曳排序', draggable: true,
+      ondragstart: (e) => { dragId = item.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setDragImage(el, 0, 0); } }),
+    h('input', { type: 'text', value: item.text, ariaLabel: '項目內容',
+      onchange: (e) => { const t = e.target.value.trim(); if (!t) return remove(item); item.text = t; save(); } }),
+    moveBtn,
+    h('button', { className: 'act', textContent: '刪除', onclick: () => remove(item) }));
+  el.ondragover = (e) => { e.preventDefault(); el.classList.add('over'); };
+  el.ondragleave = () => el.classList.remove('over');
+  el.ondrop = (e) => { e.stopPropagation(); moveBefore(S.items, dragId, item.id, item.list); commit(); };
+  return el;
+}
+
+function render() {
+  const today = S.items.filter((i) => i.list === 'today');
+  const done = today.filter((i) => i.done).length;
+  const later = S.items.length - today.length;
+  document.body.dataset.theme = S.theme;
+  $('n-today').textContent = `今日 ${done}/${today.length}`;
+  $('n-later').textContent = `先記著 ${later}`;
+  $('title').replaceChildren('今日目標 ', h('span', { textContent: `${done}/${today.length}` }));
+  $('edit').textContent = editing ? '完成' : '編輯';
+  $('pin').setAttribute('aria-pressed', S.pinned);
+
+  $('lists').replaceChildren(...LISTS.map(([list, name]) => {
+    const items = S.items.filter((i) => i.list === list);
+    const sec = h('section', {}, h('h2', { textContent: name }), ...items.map(row));
+    if (!items.length && !editing) sec.append(h('div', { className: 'hint', textContent: '（空）' }));
+    if (editing) {
+      sec.ondragover = (e) => e.preventDefault();
+      sec.ondrop = () => { moveBefore(S.items, dragId, null, list); commit(); };
+      sec.append(h('input', { type: 'text', id: 'add-' + list, placeholder: `新增到${name}`, ariaLabel: `新增到${name}`,
+        onkeydown: onEnter((e) => { add(e.target.value, list); $('add-' + list).focus(); }) }));
+    }
+    return sec;
+  }));
+  if (open) invoke('set_expanded', { expanded: true, height: $('panel').offsetHeight });
+}
+
+async function setOpen(v) {
+  if (open === v) return;
+  open = v;
+  if (v) {
+    if (rollover(S, dayKey())) save();
+  } else {
+    document.activeElement?.blur(); // flush a pending text edit
+    editing = byHotkey = false;
+  }
+  document.body.classList.toggle('open', v);
+  render();
+  if (!v) { await collapse(); save(); }
+}
+
+// Shrink to the notch; remember where it sits and which way it opens.
+async function collapse() {
+  const [x, y, up] = await invoke('set_expanded', { expanded: false, height: 0 });
+  S.pos = [x, y];
+  document.body.classList.toggle('up', up);
+}
+
+const root = document.documentElement;
+root.addEventListener('mouseenter', () => { clearTimeout(timer); byHotkey = false; setOpen(true); });
+root.addEventListener('mouseleave', () => {
+  if (S.pinned || byHotkey) return;
+  clearTimeout(timer);
+  timer = setTimeout(async () => { if (!(await invoke('cursor_inside'))) setOpen(false); }, 300);
+});
+window.addEventListener('blur', () => { if (byHotkey && !S.pinned) setOpen(false); });
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
+
+$('edit').onclick = () => { document.activeElement?.blur(); editing = !editing; render(); };
+$('pin').onclick = () => { S.pinned = !S.pinned; commit(); };
+$('quick').onkeydown = onEnter((e) => { add(e.target.value, e.shiftKey ? 'today' : 'later'); e.target.value = ''; });
+
+listen('hotkey', async () => { await setOpen(true); byHotkey = true; $('quick').focus(); });
+listen('theme', (e) => { S.theme = e.payload; commit(); });
+
+(async () => {
+  try { S = { ...S, ...JSON.parse(await invoke('load') || '{}') }; } catch { /* corrupt file: start empty */ }
+  if (S.pos) await invoke('move_to', { x: S.pos[0], y: S.pos[1] });
+  await collapse();
+  if (rollover(S, dayKey())) save();
+  render();
+  if (S.pinned) setOpen(true);
+})();
+</script>
+</body>
+</html>
