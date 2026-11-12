@@ -106,19 +106,17 @@ const moveTo = (item, list) => { item.done = false; moveBefore(S.items, item.id,
 const onEnter = (fn) => (e) => { if (e.key === 'Enter' && !e.isComposing) fn(e); };
 
 function row(item) {
-  const other = item.list === 'today' ? ['later', '退回'] : ['today', '排今天'];
-  const moveBtn = h('button', { className: 'act', textContent: other[1], onclick: () => moveTo(item, other[0]) });
-  if (!editing) {
-    if (item.list === 'later') return h('div', { className: 'row' }, h('span', { textContent: item.text }), moveBtn);
+  if (!editing) { // view mode only lists today's items
     const box = h('input', { type: 'checkbox', checked: item.done, onchange: () => { item.done = box.checked; commit(); } });
     return h('div', { className: 'row' + (item.done ? ' done' : '') }, h('label', {}, box, item.text));
   }
+  const other = item.list === 'today' ? ['later', '退回'] : ['today', '排今天'];
   const el = h('div', { className: 'row' },
     h('span', { className: 'grip', textContent: '⠿', title: '拖曳排序', draggable: true,
       ondragstart: (e) => { dragId = item.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setDragImage(el, 0, 0); } }),
     h('input', { type: 'text', value: item.text, ariaLabel: '項目內容',
       onchange: (e) => { const t = e.target.value.trim(); if (!t) return remove(item); item.text = t; save(); } }),
-    moveBtn,
+    h('button', { className: 'act', textContent: other[1], onclick: () => moveTo(item, other[0]) }),
     h('button', { className: 'act', textContent: '刪除', onclick: () => remove(item) }));
   el.ondragover = (e) => { e.preventDefault(); el.classList.add('over'); };
   el.ondragleave = () => el.classList.remove('over');
@@ -137,15 +135,14 @@ function render() {
   $('edit').textContent = editing ? '完成' : '編輯';
   $('pin').setAttribute('aria-pressed', S.pinned);
 
-  $('lists').replaceChildren(...LISTS.map(([list, name]) => {
+  // "Later" is parked work: it only shows up in edit mode.
+  $('lists').replaceChildren(...LISTS.filter(([list]) => editing || list === 'today').map(([list, name]) => {
     const items = S.items.filter((i) => i.list === list);
     const sec = h('section', {}, h('h2', { textContent: name }), ...items.map(row));
     if (!items.length && !editing) sec.append(h('div', { className: 'hint', textContent: '（空）' }));
     if (editing) {
       sec.ondragover = (e) => e.preventDefault();
       sec.ondrop = () => { moveBefore(S.items, dragId, null, list); commit(); };
-      sec.append(h('input', { type: 'text', id: 'add-' + list, placeholder: `新增到${name}`, ariaLabel: `新增到${name}`,
-        onkeydown: onEnter((e) => { add(e.target.value, list); $('add-' + list).focus(); }) }));
     }
     return sec;
   }));
