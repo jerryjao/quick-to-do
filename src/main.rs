@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering::Relaxed};
 use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
@@ -97,23 +97,30 @@ fn cursor_inside(win: WebviewWindow) -> bool {
     }
 }
 
+type WinEventProc = unsafe extern "system" fn(isize, u32, isize, i32, i32, u32, u32);
+
 #[link(name = "user32")]
 extern "system" {
     fn SetWindowPos(hwnd: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+    fn SetWinEventHook(min: u32, max: u32, module: isize, callback: WinEventProc, pid: u32, tid: u32, flags: u32) -> isize;
+}
+
+static NOTCH_HWND: AtomicIsize = AtomicIsize::new(0);
+
+unsafe extern "system" fn on_foreground_change(_: isize, _: u32, _: isize, _: i32, _: i32, _: u32, _: u32) {
+    // HWND_TOPMOST = -1; SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE = 0x13
+    SetWindowPos(NOTCH_HWND.load(Relaxed), -1, 0, 0, 0, 0, 0x13);
 }
 
 /// The taskbar is a topmost window too and jumps above the notch whenever it
-/// is used, hiding a notch parked on it. Put ourselves back on top every second.
-// ponytail: polling, so the notch can stay hidden for up to 1 s; hook
-// EVENT_SYSTEM_FOREGROUND if that lag ever matters.
+/// is used, hiding a notch parked on it. Put ourselves back on top each time
+/// the foreground window changes. Must run on the main thread: the hook's
+/// callbacks are delivered through this thread's message loop.
 fn keep_on_top(win: &WebviewWindow) {
     let Ok(hwnd) = win.hwnd() else { return };
-    let hwnd = hwnd.0 as isize;
-    std::thread::spawn(move || loop {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        // HWND_TOPMOST = -1; SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE = 0x13
-        unsafe { SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x13) };
-    });
+    NOTCH_HWND.store(hwnd.0 as isize, Relaxed);
+    // EVENT_SYSTEM_FOREGROUND = 3, all processes, WINEVENT_OUTOFCONTEXT = 0
+    unsafe { SetWinEventHook(3, 3, 0, on_foreground_change, 0, 0, 0) };
 }
 
 fn main() {
