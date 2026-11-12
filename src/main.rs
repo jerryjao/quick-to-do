@@ -123,7 +123,24 @@ fn keep_on_top(win: &WebviewWindow) {
     unsafe { SetWinEventHook(3, 3, 0, on_foreground_change, 0, 0, 0) };
 }
 
+#[link(name = "kernel32")]
+extern "system" {
+    fn CreateMutexW(attributes: *const u8, initial_owner: i32, name: *const u16) -> isize;
+    fn GetLastError() -> u32;
+}
+
+/// True when another Quick To Do already holds the named mutex. The handle is
+/// never closed on purpose: Windows releases it when this process exits.
+fn already_running() -> bool {
+    let name: Vec<u16> = "com.jerryjao.quick-to-do\0".encode_utf16().collect();
+    // ERROR_ALREADY_EXISTS = 183
+    unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) != 0 && GetLastError() == 183 }
+}
+
 fn main() {
+    if already_running() {
+        return;
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
