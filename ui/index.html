@@ -180,6 +180,7 @@ root.addEventListener('mouseleave', () => {
 });
 window.addEventListener('blur', () => { if (byHotkey && !S.pinned) setOpen(false); });
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
+window.addEventListener('contextmenu', (e) => e.preventDefault());
 
 $('edit').onclick = () => { document.activeElement?.blur(); editing = !editing; render(); };
 $('pin').onclick = () => { S.pinned = !S.pinned; commit(); };
