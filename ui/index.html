@@ -10,18 +10,18 @@
 [data-theme="indigo"]   { --bg:#14162B; --fg:#ECEDF8; --muted:#A4A8C8; --field:#1F2240; --line:#2E3256; --accent:#A5B4FC; --r-panel:16px; --r-notch:16px; --r:12px; color-scheme:dark; }
 
 html, body { margin:0; overflow:hidden; background:transparent; }
-body { font:14px "Segoe UI", "Microsoft JhengHei UI", sans-serif; color:var(--fg); user-select:none; }
+body { --op:.8; font:14px "Segoe UI", "Microsoft JhengHei UI", sans-serif; color:var(--fg); user-select:none; }
 * { box-sizing:border-box; }
 button, input { font:inherit; color:inherit; }
 button { border:0; background:none; cursor:pointer; }
 :focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
 
-#notch { width:220px; height:36px; display:flex; align-items:center; justify-content:center; gap:10px; background:var(--bg); border:1px solid var(--line); border-top:0; border-radius:0 0 var(--r-notch) var(--r-notch); font-size:13px; font-weight:500; }
+#notch { width:220px; height:36px; display:flex; align-items:center; justify-content:center; gap:10px; background:color-mix(in srgb, var(--bg) calc(var(--op) * 100%), transparent); border:1px solid var(--line); border-top:0; border-radius:0 0 var(--r-notch) var(--r-notch); font-size:13px; font-weight:500; }
 body.up #notch { border-top:1px solid var(--line); border-bottom:0; border-radius:var(--r-notch) var(--r-notch) 0 0; }
 #notch i { width:8px; height:8px; border-radius:50%; background:var(--accent); }
 #n-later, h2, .hint { color:var(--muted); }
 
-#panel { display:none; width:420px; max-height:640px; flex-direction:column; gap:12px; padding:16px; background:var(--bg); border:1px solid var(--line); border-radius:var(--r-panel); }
+#panel { display:none; width:420px; max-height:640px; flex-direction:column; gap:12px; padding:16px; background:color-mix(in srgb, var(--bg) calc(var(--op) * 100%), transparent); border:1px solid var(--line); border-radius:var(--r-panel); }
 body.open #notch { display:none; }
 body.open #panel { display:flex; }
 
@@ -30,11 +30,6 @@ header { display:flex; align-items:center; gap:8px; cursor:move; }
 #title span { color:var(--accent); }
 header button { height:32px; min-width:32px; padding:0 10px; border-radius:var(--r); background:var(--field); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; }
 header button[aria-pressed="true"] { background:var(--accent); color:var(--bg); }
-header .sw { width:20px; height:20px; min-width:20px; padding:0; border-radius:50%; border:2px solid; }
-header .sw[aria-pressed="true"] { outline:2px solid var(--fg); outline-offset:2px; }
-.sw[data-t="obsidian"] { background:#0B0B0C; border-color:#F5B544; }
-.sw[data-t="mica"]     { background:#F6F8FA; border-color:#0A5FCC; }
-.sw[data-t="indigo"]   { background:#14162B; border-color:#A5B4FC; }
 
 input[type="text"] { width:100%; height:36px; padding:0 12px; border:1px solid var(--line); border-radius:var(--r); background:var(--field); user-select:text; }
 input::placeholder { color:var(--muted); }
@@ -60,9 +55,6 @@ h2 { margin:0; font-size:12px; font-weight:400; }
 <div id="panel">
   <header data-tauri-drag-region>
     <b id="title" data-tauri-drag-region></b>
-    <button class="sw" data-t="obsidian" aria-label="黑曜" title="黑曜"></button>
-    <button class="sw" data-t="mica" aria-label="雲母" title="雲母"></button>
-    <button class="sw" data-t="indigo" aria-label="靛夜" title="靛夜"></button>
     <button id="edit"></button>
     <button id="pin" aria-label="釘住不收合" title="釘住不收合">
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 6 3 4H7l3-4-1-6z"/></svg>
@@ -83,7 +75,7 @@ const h = (tag, props = {}, ...kids) => {
 };
 const LISTS = [['today', '今日'], ['later', '先記著']];
 
-let S = { theme: 'obsidian', pinned: false, pos: null, day: '', items: [] };
+let S = { theme: 'obsidian', opacity: 80, pinned: false, pos: null, day: '', items: [] };
 let open = false, editing = false, byHotkey = false, timer = 0, dragId = null;
 
 let lastRaw = ''; // file content as we last read or wrote it
@@ -142,7 +134,7 @@ function render() {
   $('title').replaceChildren('今日目標 ', h('span', { textContent: `${done}/${today.length}` }));
   $('edit').textContent = editing ? '完成' : '編輯';
   $('pin').setAttribute('aria-pressed', S.pinned);
-  document.querySelectorAll('.sw').forEach((b) => b.setAttribute('aria-pressed', b.dataset.t === S.theme));
+  document.body.style.setProperty('--op', S.opacity / 100);
 
   // "Later" is parked work: it only shows up in edit mode.
   $('lists').replaceChildren(...LISTS.filter(([list]) => editing || list === 'today').map(([list, name]) => {
@@ -192,12 +184,12 @@ window.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(fals
 window.addEventListener('contextmenu', (e) => e.preventDefault());
 
 $('edit').onclick = () => { document.activeElement?.blur(); editing = !editing; render(); };
-document.querySelectorAll('.sw').forEach((b) => { b.onclick = () => { S.theme = b.dataset.t; commit(); }; });
 $('pin').onclick =() => { S.pinned = !S.pinned; commit(); };
 $('quick').onkeydown = onEnter((e) => { add(e.target.value, e.shiftKey ? 'today' : 'later'); e.target.value = ''; });
 
 listen('hotkey', async () => { await setOpen(true); byHotkey = true; $('quick').focus(); });
 listen('theme', (e) => { S.theme = e.payload; commit(); });
+listen('opacity', (e) => { S.opacity = +e.payload; commit(); });
 
 (async () => {
   await sync();

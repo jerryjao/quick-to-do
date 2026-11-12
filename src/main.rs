@@ -170,10 +170,16 @@ fn main() {
                 .text("theme:mica", "雲母")
                 .text("theme:indigo", "靛夜")
                 .build()?;
+            let mut opacity = SubmenuBuilder::new(app, "透明度");
+            for pct in [100, 90, 80, 70, 60, 50, 40] {
+                opacity = opacity.text(format!("opacity:{pct}"), format!("{pct}%"));
+            }
+            let opacity = opacity.build()?;
             let autostart = CheckMenuItemBuilder::with_id("autostart", "開機自動啟動")
                 .checked(app.autolaunch().is_enabled().unwrap_or(false))
                 .build(app)?;
             let menu = MenuBuilder::new(app)
+                .item(&opacity)
                 .item(&themes)
                 .item(&autostart)
                 .separator()
@@ -192,6 +198,8 @@ fn main() {
                     id => {
                         if let Some(theme) = id.strip_prefix("theme:") {
                             let _ = app.emit("theme", theme);
+                        } else if let Some(pct) = id.strip_prefix("opacity:") {
+                            let _ = app.emit("opacity", pct);
                         }
                     }
                 })
